@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>前端知识图谱（交互原型）</title>
+  <style>
+    :root{--bg:#0b1220;--card:#071021;--accent:#5eead4;--muted:#94a3b8}
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Helvetica,Arial;background:linear-gradient(180deg,#061021 0%, #071826 100%);color:#e6eef6}
+    .wrap{display:grid;grid-template-columns:280px 1fr 360px;gap:18px;height:100vh;padding:18px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:12px;padding:14px;box-shadow:0 8px 28px rgba(2,6,23,0.7);border:1px solid rgba(255,255,255,0.03)}
+    h2{margin:0 0 10px 0;font-size:16px}
+    .roles{display:flex;flex-direction:column;gap:8px}
+    .role{padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);cursor:pointer;border:1px solid rgba(255,255,255,0.02)}
+    .role.active{outline:2px solid var(--accent);background:linear-gradient(90deg, rgba(94,234,212,0.06), transparent)}
+    .search{display:flex;gap:8px;margin-top:10px}
+    .search input{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .controls{display:flex;gap:8px}
+
+    /* center graph */
+    .graph{position:relative;height:calc(100vh - 72px);overflow:hidden}
+    svg{width:100%;height:100%;display:block}
+    .edge{stroke:rgba(255,255,255,0.06);stroke-width:1.2}
+    .node circle{fill:rgba(255,255,255,0.03);stroke:rgba(255,255,255,0.06);stroke-width:1.6;cursor:pointer}
+    .node.core circle{r:36}
+    .node.text text{font-size:12px;fill:#cfeef0;pointer-events:none}
+    .node.highlight circle{stroke:var(--accent);stroke-width:3;filter:drop-shadow(0 8px 24px rgba(94,234,212,0.12))}
+
+    .legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+    .pill{padding:6px 10px;border-radius:999px;background:rgba(255,255,255,0.02);font-size:12px}
+
+    /* right panel */
+    .detail .tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    .tag{padding:6px 8px;border-radius:8px;background:rgba(255,255,255,0.02);font-size:13px}
+    .btn{padding:8px 10px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.04);cursor:pointer}
+    footer{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <aside class="card">
+      <h2>角色视角</h2>
+      <div class="roles" id="roles"></div>
+      <div class="search">
+        <input id="search" placeholder="搜索节点或关键词..." />
+        <button class="btn" id="clear">清除</button>
+      </div>
+      <div style="height:8px"></div>
+      <div class="legend">
+        <div class="pill">核心</div>
+        <div class="pill">框架</div>
+        <div class="pill">工程</div>
+        <div class="pill">测试/质量</div>
+        <div class="pill">性能/安全</div>
+        <div class="pill">平台/移动</div>
+      </div>
+    </aside>
+
+    <main class="card graph">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div>
+          <h2>前端知识图谱</h2>
+          <div style="color:var(--muted);font-size:13px">可缩放 / 可搜索 / 点击节点查看详情</div>
+        </div>
+        <div class="controls">
+          <button class="btn" id="zoomIn">放大</button>
+          <button class="btn" id="zoomOut">缩小</button>
+          <button class="btn" id="fit">适配</button>
+          <button class="btn" id="export">导出 PNG</button>
+        </div>
+      </div>
+      <svg id="svg" viewBox="0 0 1200 780" preserveAspectRatio="xMidYMid meet"></svg>
+      <footer style="position:absolute;left:36px;bottom:26px">蓝图：核心 → 框架/工程 → 专项（性能/安全/可访问性）</footer>
+    </main>
+
+    <aside class="card detail">
+      <h2 id="detailTitle">节点信息 / 角色说明</h2>
+      <div id="detailBody">选择一个节点或角色查看详细说明。</div>
+      <div style="height:10px"></div>
+      <h2>学习路径示例</h2>
+      <div style="color:var(--muted);font-size:13px">广度：快速覆盖核心 + 1-2 个领域；深度：选择一项专精并产出项目或研究。</div>
+      <div style="height:10px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" id="focusCore">聚焦核心</button>
+        <button class="btn" id="reset">重置</button>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // --- 数据模型（完整节点）
+    const nodes = [
+      {id:'html',label:'HTML',group:'core',desc:'语义化、表单、可访问性、Web Components'},
+      {id:'css',label:'CSS',group:'core',desc:'布局、响应式、选择器、动画、预处理器'},
+      {id:'js',label:'JavaScript',group:'core',desc:'语言核心、异步、模块、事件循环'},
+      {id:'dom',label:'DOM & BOM',group:'core',desc:'DOM API、事件、渲染与回流重绘'},
+
+      {id:'react',label:'React',group:'framework',desc:'组件化、Hooks、SSR、生态'},
+      {id:'vue',label:'Vue',group:'framework',desc:'响应式、单文件组件、Nuxt'},
+      {id:'state',label:'状态管理',group:'framework',desc:'Redux/Pinia/Zustand 等'},
+
+      {id:'build',label:'构建 & 打包',group:'tool',desc:'webpack/vite/esbuild，tree-shaking'},
+      {id:'ci',label:'CI/CD',group:'tool',desc:'自动化构建、测试与发布流水线'},
+      {id:'infra',label:'观测 & 运维',group:'tool',desc:'日志、监控、SRE 思想'},
+
+      {id:'testing',label:'测试',group:'qa',desc:'单元、集成、e2e (Jest/Vitest/Cypress/Playwright)'},
+      {id:'types',label:'TypeScript',group:'qa',desc:'静态类型、类型设计、类型演进'},
+
+      {id:'perf',label:'性能',group:'perf',desc:'Lighthouse、渲染优化、缓存策略'},
+      {id:'security',label:'安全',group:'perf',desc:'XSS/CSRF/依赖审计/内容安全策略'},
+      {id:'access',label:'无障碍 (A11Y)',group:'perf',desc:'语义、ARIA、屏幕阅读器友好'},
+
+      {id:'mobile',label:'移动 & 跨平台',group:'platform',desc:'PWA/React Native/Flutter/小程序'},
+      {id:'backend',label:'后端基础',group:'platform',desc:'REST/GraphQL/认证/存储'},
+      {id:'ssr',label:'SSR / 全栈',group:'platform',desc:'Next/Nuxt、BFF、边缘渲染'},
+
+      {id:'arch',label:'架构 & 微前端',group:'arch',desc:'模块联邦、微前端、分布式前端架构'}
+    ];
+
+    const links = [
+      ['html','dom'],['css','dom'],['js','dom'],['js','react'],['js','vue'],['react','state'],['vue','state'],
+      ['build','react'],['build','vue'],['build','ssr'],['build','ci'],['ci','infra'],['testing','ci'],['types','build'],
+      ['perf','build'],['perf','js'],['access','html'],['security','js'],['mobile','react'],['ssr','arch'],['arch','backend']
+    ];
+
+    const roles = [
+      {id:'junior',name:'初级前端',nodes:['html','css','js','dom']},
+      {id:'frontend',name:'前端工程师',nodes:['html','css','js','react','vue','state','build','testing','types']},
+      {id:'ui',name:'UI 工程师',nodes:['html','css','ux','access','react']},
+      {id:'perf',name:'性能工程师',nodes:['perf','build','infra','js']},
+      {id:'fullstack',name:'全栈工程师',nodes:['ssr','backend','ci','build','types']},
+      {id:'mobile',name:'移动前端',nodes:['mobile','react','build','perf']},
+      {id:'arch',name:'前端架构师',nodes:['arch','build','ci','infra','ssr']}
+    ];
+
+    // --- 布局生成（环形分层）
+    const svg = document.getElementById('svg');
+    const viewW = 1200, viewH = 780;
+
+    function layout() {
+      const center = {x: viewW/2, y: viewH/2};
+      const core = nodes.filter(n=>n.group==='core');
+      const others = nodes.filter(n=>n.group!=='core');
+
+      const positions = {};
+      // core in small circle
+      core.forEach((n,i)=>{
+        const angle = i/core.length * Math.PI*2 - Math.PI/2;
+        const r = 90;
+        positions[n.id] = {x: center.x + Math.cos(angle)*r, y: center.y + Math.sin(angle)*r};
+      });
+
+      // groups rings
+      const groups = ['framework','tool','qa','perf','platform','arch'];
+      groups.forEach((g,gi)=>{
+        const items = nodes.filter(n=>n.group===g);
+        const ringR = 170 + gi*90;
+        items.forEach((n,i)=>{
+          const angle = (i/items.length) * Math.PI*2 - Math.PI/2 + gi*0.15;
+          positions[n.id] = {x: center.x + Math.cos(angle)*ringR, y: center.y + Math.sin(angle)*ringR};
+        });
+      });
+
+      return positions;
+    }
+
+    let positions = layout();
+
+    function draw(){
+      svg.innerHTML = '';
+      // edges
+      links.forEach(l=>{
+        const [a,b] = l; const p1 = positions[a], p2 = positions[b];
+        if(!p1 || !p2) return;
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('class','edge');
+        line.setAttribute('x1', p1.x); line.setAttribute('y1', p1.y);
+        line.setAttribute('x2', p2.x); line.setAttribute('y2', p2.y);
+        svg.appendChild(line);
+      });
+
+      // nodes
+      nodes.forEach(n=>{
+        const p = positions[n.id]; if(!p) return;
+        const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+        g.setAttribute('class','node '+(n.group==='core'?'core':'')+' text');
+        g.dataset.id = n.id;
+        g.setAttribute('transform',`translate(${p.x},${p.y})`);
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        circle.setAttribute('r', n.group==='core'?36:22);
+        g.appendChild(circle);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+        text.setAttribute('x', n.group==='core'?52:30);
+        text.setAttribute('y',4);
+        text.textContent = n.label;
+        g.appendChild(text);
+
+        g.onclick = ()=> showDetail(n);
+        svg.appendChild(g);
+      });
+    }
+
+    // --- interactions
+    function showDetail(n){
+      document.getElementById('detailTitle').innerText = n.label;
+      document.getElementById('detailBody').innerHTML = `<div style="color:var(--muted)">${n.desc || ''}</div>`+
+        `<div class="tags">` +
+        `<span class="tag">类别: ${n.group}</span>` +
+        `</div>`;
+
+      document.querySelectorAll('.node').forEach(el=>el.classList.remove('highlight'));
+      const el = Array.from(document.querySelectorAll('.node')).find(x=>x.dataset.id===n.id);
+      if(el) el.classList.add('highlight');
+    }
+
+    // render roles list
+    const rolesEl = document.getElementById('roles');
+    roles.forEach(r=>{
+      const d = document.createElement('div'); d.className='role'; d.innerText = r.name; d.title = r.nodes.join(',');
+      d.onclick = ()=> selectRole(r,d);
+      rolesEl.appendChild(d);
+    });
+
+    function selectRole(r,el){
+      // active
+      document.querySelectorAll('.role').forEach(x=>x.classList.remove('active'));
+      el.classList.add('active');
+
+      const set = new Set(r.nodes);
+      document.querySelectorAll('.node').forEach(nodeEl=>{
+        const id = nodeEl.dataset.id;
+        if(set.has(id)) nodeEl.classList.add('highlight'); else nodeEl.classList.remove('highlight');
+      });
+
+      // show summary
+      document.getElementById('detailTitle').innerText = r.name;
+      document.getElementById('detailBody').innerHTML = `<div style="color:var(--muted)">关键技术：${r.nodes.join('，')}</div>`;
+    }
+
+    // search
+    document.getElementById('search').addEventListener('input',(e)=>{
+      const q = e.target.value.trim().toLowerCase();
+      document.querySelectorAll('.node').forEach(el=>{
+        const id = el.dataset.id; const n = nodes.find(x=>x.id===id);
+        if(!q || n.label.toLowerCase().includes(q) || (n.desc||'').toLowerCase().includes(q)) el.style.display=''; else el.style.display='none';
+      });
+    });
+    document.getElementById('clear').onclick = ()=>{document.getElementById('search').value=''; document.getElementById('search').dispatchEvent(new Event('input'))}
+
+    // zoom/pan basic (scale via viewBox)
+    let scale = 1;
+    document.getElementById('zoomIn').onclick = ()=>{ scale = Math.min(scale + 0.2, 3); updateViewBox(); }
+    document.getElementById('zoomOut').onclick = ()=>{ scale = Math.max(scale - 0.2, 0.4); updateViewBox(); }
+    document.getElementById('fit').onclick = ()=>{ scale = 1; updateViewBox(); }
+
+    function updateViewBox(){
+      const w = viewW/scale; const h = viewH/scale; const x = (viewW - w)/2; const y = (viewH - h)/2;
+      svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`);
+    }
+
+    // export svg to PNG
+    document.getElementById('export').onclick = async ()=>{
+      const serializer = new XMLSerializer();
+      const source = serializer.serializeToString(svg);
+      const svgBlob = new Blob([source], {type:'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(svgBlob);
+      const img = new Image(); img.src = url;
+      img.onload = ()=>{
+        const canvas = document.createElement('canvas'); canvas.width = 1800; canvas.height = 1200;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#071826'; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        const png = canvas.toDataURL('image/png');
+        const a = document.createElement('a'); a.href = png; a.download = 'frontend-knowledge-map.png'; a.click(); URL.revokeObjectURL(url);
+      }
+    }
+
+    // focus core
+    document.getElementById('focusCore').onclick = ()=>{
+      document.querySelectorAll('.node').forEach(el=>el.classList.remove('highlight'));
+      nodes.filter(n=>n.group==='core').forEach(n=>{ const el = Array.from(document.querySelectorAll('.node')).find(x=>x.dataset.id===n.id); if(el) el.classList.add('highlight'); });
+      document.getElementById('detailTitle').innerText='核心基础'; document.getElementById('detailBody').innerHTML='<div style="color:var(--muted)">HTML / CSS / JS / DOM</div>';
+    }
+    document.getElementById('reset').onclick = ()=>{ document.querySelectorAll('.role').forEach(x=>x.classList.remove('active')); document.querySelectorAll('.node').forEach(x=>x.classList.remove('highlight')); document.getElementById('detailTitle').innerText='节点信息 / 角色说明'; document.getElementById('detailBody').innerText='选择一个节点或角色查看详细说明。'; }
+
+    // initial draw
+    draw();
+
+    // accessibility: keyboard for roles
+    Array.from(document.querySelectorAll('.role')).forEach((el,i)=>{ el.tabIndex=0; el.addEventListener('keydown',(e)=>{ if(e.key==='Enter') el.click() }) });
+  </script>
+</body>
+</html>
